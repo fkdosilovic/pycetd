@@ -1,8 +1,8 @@
-import logging
-import re
-from abc import ABC, abstractmethod
-
 import math
+import re
+import logging
+
+from abc import ABC, abstractmethod
 from bs4 import BeautifulSoup, Tag
 from math import log as ln
 
@@ -11,36 +11,38 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 """
-A pure Python implementation of content extraction via composite text density. The overall 
-idea of this algorithm is to detect which parts of a web page are relevant by comparing the "text 
-density," which is a metric derived from the ratio of hyperlink to non-hyperlink characters, of 
-all DOM nodes in the tree. Those DOM nodes determined to be relevant then have their text portions
-included in the final output. 
+A pure Python implementation of content extraction via composite text density.
+The overall  idea of this algorithm is to detect which parts of a web page are
+relevant by comparing the "text  density," which is a metric derived from the
+ratio of hyperlink to non-hyperlink characters, of all DOM nodes in the tree.
+Those DOM nodes determined to be relevant then have their text portions
+included in the final output.
 
 Original paper: http://ofey.me/papers/cetd-sigir11.pdf
 Original code: https://github.com/FeiSun/ContentExtraction
 """
 
-KG_CHAR_NUM = 'char-number'
-KG_TAG_NUM = 'tag-number'
-KG_LINKCHAR_NUM = 'linkchar-number'
-KG_LINKTAG_NUM = 'linktag-number'
-KG_TEXT_DENSITY = 'text-density'
-KG_DENSITY_SUM = 'density-sum'
-KG_MAX_DENSITY_SUM = 'max-density-sum'
-KG_MARK = 'mark'
-KG_GEOMETRY = 'geometry'
+KG_CHAR_NUM: str = "char-number"
+KG_TAG_NUM: str = "tag-number"
+KG_LINKCHAR_NUM: str = "linkchar-number"
+KG_LINKTAG_NUM: str = "linktag-number"
+KG_TEXT_DENSITY: str = "text-density"
+KG_DENSITY_SUM: str = "density-sum"
+KG_MAX_DENSITY_SUM: str = "max-density-sum"
+KG_MARK: str = "mark"
+KG_GEOMETRY: str = "geometry"
 
-LINK_TAGS = {'a', 'button', 'select'}
-JS_TAGS = {'script', 'style'}
+LINK_TAGS = {"a", "button", "select"}
+JS_TAGS = {"script", "style"}
 
-whitespace_regex = re.compile(r'(\s{2,}|\t)')
+whitespace_regex = re.compile(r"(\s{2,}|\t)")
 
 
 def first_child(web_element: Tag) -> Tag:
     for c in web_element.children:
         if isinstance(c, Tag):
             return c
+
 
 def search_tag(web_element: Tag, attribute: str, value: float) -> Tag:
     """
@@ -106,10 +108,11 @@ def get_threshold(web_element: Tag, max_density_sum: float) -> float:
     threshold = float(target[KG_TEXT_DENSITY])
     set_mark(target, 1)
     parent = target.parent
-    while parent.name.lower() != 'html':
+    while parent.name.lower() != "html":
         text_density = float(parent[KG_TEXT_DENSITY])
-        threshold = min(threshold,
-                        text_density)  # i think... "if threshold - text_density > -1 * std::numeric_limits<double>::epsilon()" whatever the fuck that means
+        # I think... "if threshold - text_density > -1 * std::numeric_limits
+        # <double>::epsilon()"
+        threshold = min(threshold, text_density)
         parent[KG_MARK] = 2  # magic constant
         parent = parent.parent
     return threshold
@@ -126,7 +129,9 @@ def mark_content(web_element: Tag, threshold: float):
     text_density = float(web_element[KG_TEXT_DENSITY])
     max_density_sum = float(web_element[KG_MAX_DENSITY_SUM])
     mark = int(web_element[KG_MARK])
-    if mark != 1 and threshold > text_density:  # again, this is written a stupid way
+    if (
+        mark != 1 and threshold > text_density
+    ):  # again, this is written a stupid way
         find_max_density_sum_tag(web_element, max_density_sum)
         if isinstance(web_element, Tag):
             for child in web_element.children:
@@ -145,7 +150,7 @@ def find_max_density_sum_tag(web_element: Tag, max_density_sum: float):
     if mark != 1:
         set_mark(target, 1)
         parent = target.parent
-        while parent.name.lower() != 'html':
+        while parent.name.lower() != "html":
             parent[KG_MARK] = 2  # magic constant, again
             parent = parent.parent
 
@@ -156,9 +161,13 @@ class AbstractExtractor(ABC):
     the composite text density extraction algorithm, leaving a few methods
     open to variable implementations
     """
-    def __init__(self, removables=JS_TAGS, ignorable_tags=LINK_TAGS.union(JS_TAGS)):
+
+    def __init__(
+        self, removables=JS_TAGS, ignorable_tags=LINK_TAGS.union(JS_TAGS)
+    ):
         """
-        Initialize the abstract superclass by defining removable and ignorable tags
+        Initialize the abstract superclass by defining removable and ignorable
+        tags
         :param removables: tags that will be removed entirely from the final output
         :param ignorable_tags: tags whose content will be weighted as undesirable content
         """
@@ -166,7 +175,7 @@ class AbstractExtractor(ABC):
         self.ignorable_tags = ignorable_tags
 
     def create_doc(self, html: str) -> Tag:
-        return BeautifulSoup(html, 'html.parser').body
+        return BeautifulSoup(html, "html.parser").body
 
     def extract_content(self, html: str) -> str:
         bs = self.create_doc(html)
@@ -193,8 +202,12 @@ class AbstractExtractor(ABC):
         [z.extract() for z in zero_elements]
         output_dirty = bs.get_text()
         # remove excess whitespace and duplicate newline characters
-        output_dirty = whitespace_regex.sub(' ', output_dirty)
-        output = '\n'.join(list(filter(lambda s: len(s.strip()) > 0, output_dirty.splitlines())))
+        output_dirty = whitespace_regex.sub(" ", output_dirty)
+        output = "\n".join(
+            list(
+                filter(lambda s: len(s.strip()) > 0, output_dirty.splitlines())
+            )
+        )
         return output
 
     @abstractmethod
@@ -220,7 +233,9 @@ class AbstractExtractor(ABC):
         :return:
         """
         target_args = {"display": "none"}
-        remove = web_element.find_all(**target_args) + web_element.find_all(*self.removables)
+        remove = web_element.find_all(**target_args) + web_element.find_all(
+            *self.removables
+        )
         [r.extract() for r in remove]
         # additionally remove js tags--not in original
         for sib in web_element.next_siblings:
@@ -301,7 +316,11 @@ class AbstractExtractor(ABC):
                         child_tag_num = child[KG_TAG_NUM]
                         child_char_num = child[KG_CHAR_NUM]
                         child_linkchar_num = child[KG_LINKCHAR_NUM]
-                        if child_linktag_num == child_tag_num and child_char_num == child_linkchar_num and 0 != child_linktag_num:
+                        if (
+                            child_linktag_num == child_tag_num
+                            and child_char_num == child_linkchar_num
+                            and 0 != child_linktag_num
+                        ):
                             linktag_num += 1
         web_element[KG_LINKTAG_NUM] = linktag_num
 
@@ -321,7 +340,7 @@ class Extractor(AbstractExtractor):
         :return: void
         """
         if isinstance(web_element, Tag):
-            element_str = ' '.join(web_element.stripped_strings)
+            element_str = " ".join(web_element.stripped_strings)
             num_chars = len(element_str)
             web_element[KG_CHAR_NUM] = num_chars
             for child in web_element.children:
@@ -360,7 +379,7 @@ class Extractor(AbstractExtractor):
         linkchar_num = web_element[KG_LINKCHAR_NUM]
         linktag_num = web_element[KG_LINKTAG_NUM]
         if char_num == 0:
-            density = 0.
+            density = 0.0
         else:
             un_linkchar_num = char_num - linkchar_num
             if tag_num == 0:
@@ -373,9 +392,17 @@ class Extractor(AbstractExtractor):
                 un_linkchar_num = 1
 
             # this formula is copied directly from the src obviously
-            density = (char_num / tag_num) * ln(
-                (char_num * tag_num) / (linkchar_num * linktag_num)) / ln(
-                ln(char_num * linkchar_num / un_linkchar_num + ratio * char_num + math.e))
+            density = (
+                (char_num / tag_num)
+                * ln((char_num * tag_num) / (linkchar_num * linktag_num))
+                / ln(
+                    ln(
+                        char_num * linkchar_num / un_linkchar_num
+                        + ratio * char_num
+                        + math.e
+                    )
+                )
+            )
 
         web_element[KG_TEXT_DENSITY] = max(density, 0)
         for child in web_element.children:
@@ -389,9 +416,9 @@ class Extractor(AbstractExtractor):
         :param ratio:
         :return:
         """
-        density_sum = 0.
+        density_sum = 0.0
         char_num_sum = 0
-        content = ' '.join(web_element.stripped_strings)
+        content = " ".join(web_element.stripped_strings)
         from_ = 0
 
         if isinstance(web_element, Tag):
@@ -402,7 +429,7 @@ class Extractor(AbstractExtractor):
                 if isinstance(child, Tag):
                     density_sum += child[KG_TEXT_DENSITY]
                     char_num_sum += child[KG_CHAR_NUM]
-                    child_content = ' '.join(child.stripped_strings)
+                    child_content = " ".join(child.stripped_strings)
                     try:
                         index = content.index(child_content)
                     except:
@@ -410,11 +437,17 @@ class Extractor(AbstractExtractor):
                     if index > -1:
                         length = index - from_
                         if length > 0:
-                            density_sum += length * ln(1. * length) / ln(ln(ratio * length + math.e))
+                            density_sum += (
+                                length
+                                * ln(1.0 * length)
+                                / ln(ln(ratio * length + math.e))
+                            )
                             from_ = index + len(child_content)
             length = len(content) - from_
             if length > 0 and ratio * length > (1 / math.e):
-                density_sum += length * ln(1. * length) / ln(ln(ratio * length + math.e))
+                density_sum += (
+                    length * ln(1.0 * length) / ln(ln(ratio * length + math.e))
+                )
 
             web_element[KG_DENSITY_SUM] = density_sum
 
@@ -433,15 +466,19 @@ class VariantExtractor(AbstractExtractor):
         :return:
         """
         char_num = 0
-        plain_text_length = len(' '.join(web_element.stripped_strings))
-        if not is_ignorable(web_element, self.ignorable_tags) and isinstance(web_element, Tag):
+        plain_text_length = len(" ".join(web_element.stripped_strings))
+        if not is_ignorable(web_element, self.ignorable_tags) and isinstance(
+            web_element, Tag
+        ):
             for child in web_element.children:
                 if isinstance(child, Tag):
                     self.count_chars(child)
             for child in web_element.children:
                 if isinstance(child, Tag):
                     char_num += child[KG_CHAR_NUM]
-                    child_plain_text_length = len(' '.join(child.stripped_strings))
+                    child_plain_text_length = len(
+                        " ".join(child.stripped_strings)
+                    )
                     plain_text_length -= child_plain_text_length
             char_num = char_num + plain_text_length
         web_element[KG_CHAR_NUM] = char_num
@@ -467,11 +504,11 @@ class VariantExtractor(AbstractExtractor):
         """
         char_num = web_element[KG_CHAR_NUM]
         tag_num = web_element[KG_TAG_NUM]
-        text_density = 0.
+        text_density = 0.0
         if char_num != 0:
             if tag_num == 0:
                 tag_num = 1
-            text_density = 1. * char_num / tag_num
+            text_density = 1.0 * char_num / tag_num
         web_element[KG_TEXT_DENSITY] = text_density
         if isinstance(web_element, Tag):
             for child in web_element.children:
@@ -485,8 +522,8 @@ class VariantExtractor(AbstractExtractor):
         :param web_element:
         :return:
         """
-        density_sum = 0.
-        char_num_sum = 0.
+        density_sum = 0.0
+        char_num_sum = 0.0
         if isinstance(web_element, Tag):
             for child in web_element.children:
                 self.compute_density_sum(child)
@@ -502,19 +539,20 @@ class VariantExtractor(AbstractExtractor):
                 density_sum = web_element[KG_TEXT_DENSITY]
                 web_element[KG_DENSITY_SUM] = density_sum
 
-html_tag_regex = re.compile(r'(<HTML>|<html>)(.*)(</HTML>|</html>)')
+
+html_tag_regex = re.compile(r"(<HTML>|<html>)(.*)(</HTML>|</html>)")
+
 
 class EDGARExtractor(Extractor):
-
     def __init__(self):
         self.removables = JS_TAGS
         self.ignorable_tags = LINK_TAGS.union(JS_TAGS)
 
     def create_doc(self, html: str) -> BeautifulSoup:
-        start = html.index('<html>')
-        end = html.index('</html>') + len('</html')
-        s = html[start:end + 1]
-        return BeautifulSoup(s, 'html.parser').body
+        start = html.index("<html>")
+        end = html.index("</html>") + len("</html")
+        s = html[start : end + 1]
+        return BeautifulSoup(s, "html.parser").body
 
     def extract_content(self, html: str) -> str:
         bs = self.create_doc(html)
@@ -535,16 +573,25 @@ class EDGARExtractor(Extractor):
         [z.extract() for z in zero_elements]
         output_dirty = bs.get_text()
         # remove excess whitespace and duplicate newline characters
-        output_dirty = whitespace_regex.sub(' ', output_dirty)
-        output = '\n'.join(list(filter(lambda s: len(s.strip()) > 0, output_dirty.splitlines())))
+        output_dirty = whitespace_regex.sub(" ", output_dirty)
+        output = "\n".join(
+            list(
+                filter(lambda s: len(s.strip()) > 0, output_dirty.splitlines())
+            )
+        )
         return output
 
 
-if __name__ == '__main__':
-    sample = open('/Users/blevine/composite-text-density/SEC-AAPL-10K.txt', 'rb').read().decode('utf-8', errors='ignore')
+if __name__ == "__main__":
+    sample = (
+        open("/Users/blevine/composite-text-density/SEC-AAPL-10K.txt", "rb")
+        .read()
+        .decode("utf-8", errors="ignore")
+    )
     ext = EDGARExtractor()
     extr = ext.extract_content(sample)
     # write to file
-    SEC_APPL = open('SEC-AAPL-10K-clean.txt', 'wb')
-    SEC_APPL.write(extr.encode('utf8', errors='ignore'))
-    print('Wrote %d characters to file' % (len(extr)))
+    SEC_APPL = open("SEC-AAPL-10K-clean.txt", "wb")
+    SEC_APPL.write(extr.encode("utf8", errors="ignore"))
+    print("Wrote %d characters to file" % (len(extr)))
+
