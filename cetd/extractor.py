@@ -1,6 +1,7 @@
 import math
 import re
 import logging
+import numbers
 
 from abc import ABC, abstractmethod
 from bs4 import BeautifulSoup, Tag
@@ -54,10 +55,14 @@ def search_tag(web_element: Tag, attribute: str, value: float) -> Tag:
     :return:
     """
     attribute = str(attribute)
-    value = str(value)
+    # value = str(value)
     try:
-        if web_element[attribute] == value:
-            return web_element
+        if isinstance(web_element[attribute], numbers.Number):
+            if math.isclose(web_element[attribute], value):
+                return web_element
+        else:
+            if web_element[attribute] == value:
+                return web_element
     except KeyError:
         pass  # ignore
     kws = {attribute: value}
@@ -189,18 +194,20 @@ class AbstractExtractor(ABC):
         ratio = linkchar_num / char_num
         self.compute_text_density(bs, ratio)
         self.compute_density_sum(bs, ratio)
-        logger.debug("Density sums: ")
+        # logger.debug("Density sums: ")
         max_density_sum = find_max_density_sum(bs)
         # [logger.debug('Node name: %s \t Density sum: %f \t Max sum: %f' % (l.name, l[KG_DENSITY_SUM], max_density_sum))
         #  for l in bs.descendants if isinstance(l, Tag)]
         set_mark(bs, 0)
         threshold = get_threshold(bs, max_density_sum)
         mark_content(bs, threshold)
+
         # we don't actually care about cleaning the tree or returning DOM nodes
         kws = {KG_MARK: 0}
         zero_elements = bs.find_all(**kws)
         [z.extract() for z in zero_elements]
         output_dirty = bs.get_text()
+
         # remove excess whitespace and duplicate newline characters
         output_dirty = whitespace_regex.sub(" ", output_dirty)
         output = "\n".join(
@@ -208,6 +215,7 @@ class AbstractExtractor(ABC):
                 filter(lambda s: len(s.strip()) > 0, output_dirty.splitlines())
             )
         )
+
         return output
 
     @abstractmethod
@@ -538,60 +546,3 @@ class VariantExtractor(AbstractExtractor):
             else:
                 density_sum = web_element[KG_TEXT_DENSITY]
                 web_element[KG_DENSITY_SUM] = density_sum
-
-
-html_tag_regex = re.compile(r"(<HTML>|<html>)(.*)(</HTML>|</html>)")
-
-
-class EDGARExtractor(Extractor):
-    def __init__(self):
-        self.removables = JS_TAGS
-        self.ignorable_tags = LINK_TAGS.union(JS_TAGS)
-
-    def create_doc(self, html: str) -> BeautifulSoup:
-        start = html.index("<html>")
-        end = html.index("</html>") + len("</html")
-        s = html[start : end + 1]
-        return BeautifulSoup(s, "html.parser").body
-
-    def extract_content(self, html: str) -> str:
-        bs = self.create_doc(html)
-        self.preprocess_dom(bs)
-        self.count_chars(bs)
-        self.count_tags(bs)
-        self.count_link_chars(bs)
-        self.count_link_tags(bs)
-        char_num = bs[KG_CHAR_NUM]
-        linkchar_num = bs[KG_LINKCHAR_NUM]
-        ratio = linkchar_num / char_num
-        self.compute_text_density(bs, ratio)
-        self.compute_density_sum(bs, ratio)
-
-        # kill everything with no density
-        kws = {KG_DENSITY_SUM: 0}
-        zero_elements = bs.find_all(**kws)
-        [z.extract() for z in zero_elements]
-        output_dirty = bs.get_text()
-        # remove excess whitespace and duplicate newline characters
-        output_dirty = whitespace_regex.sub(" ", output_dirty)
-        output = "\n".join(
-            list(
-                filter(lambda s: len(s.strip()) > 0, output_dirty.splitlines())
-            )
-        )
-        return output
-
-
-if __name__ == "__main__":
-    sample = (
-        open("/Users/blevine/composite-text-density/SEC-AAPL-10K.txt", "rb")
-        .read()
-        .decode("utf-8", errors="ignore")
-    )
-    ext = EDGARExtractor()
-    extr = ext.extract_content(sample)
-    # write to file
-    SEC_APPL = open("SEC-AAPL-10K-clean.txt", "wb")
-    SEC_APPL.write(extr.encode("utf8", errors="ignore"))
-    print("Wrote %d characters to file" % (len(extr)))
-
