@@ -1,3 +1,4 @@
+import re
 import math
 import re
 import logging
@@ -33,8 +34,15 @@ KG_MAX_DENSITY_SUM: str = "max-density-sum"
 KG_MARK: str = "mark"
 KG_GEOMETRY: str = "geometry"
 
-LINK_TAGS = {"a", "button", "select"}
-JS_TAGS = {"script", "style"}
+IGNOREABLE_HTML_TAGS = {"a"}  # "button", "select"
+REMOVEABLE_HTML_TAGS = {"img", "span", "video", "button", "select"}
+REMOVEABLE_JS_TAGS = {"iframe", "script", "noscript", "style"}
+
+# Note that all removeable tags are also ignorable tags, but not all ignorable
+# tags are removeable tags!
+REMOVEABLE_TAGS = REMOVEABLE_HTML_TAGS | REMOVEABLE_JS_TAGS
+IGNORABLE_TAGS = IGNOREABLE_HTML_TAGS | REMOVEABLE_TAGS
+
 
 whitespace_regex = re.compile(r"(\s{2,}|\t)")
 
@@ -46,9 +54,8 @@ def first_child(web_element: Tag) -> Tag:
 
 
 def search_tag(web_element: Tag, attribute: str, value: float) -> Tag:
-    """
-    A method for returning the first occurrence of a Tag having the value specified
-    for the attribute provided
+    """A method for returning the first occurrence of a Tag having the value
+    specified for the attribute provided.
     :param web_element:
     :param attribute:
     :param value:
@@ -76,12 +83,11 @@ def search_tag(web_element: Tag, attribute: str, value: float) -> Tag:
     return target
 
 
-def is_ignorable(tag: Tag, ignorables: set = LINK_TAGS.union(JS_TAGS)) -> bool:
-    """
-    Returns true if the tag provided is considered ignorable for the current use case.
-    By default this entails link text (like <a href=.../>) and javascript tags that
-    we don't care about. In the original paper only link tags were included, but that
-    was in 2011.
+def is_ignorable(tag: Tag, ignorables: set = IGNORABLE_TAGS) -> bool:
+    """Returns true if the tag provided is considered ignorable for the current
+    use case. By default this entails link text (like <a href=.../>) and JS
+    tags that we don't care about. In the original paper only link tags were
+    included, but that was in 2011.
     :param tag:
     :return:
     """
@@ -168,23 +174,19 @@ class AbstractExtractor(ABC):
     """
 
     def __init__(
-        self, removables=JS_TAGS, ignorable_tags=LINK_TAGS.union(JS_TAGS)
+        self,
+        removables: set = REMOVEABLE_TAGS,
+        ignorable_tags: set = IGNORABLE_TAGS,
     ):
-        """
-        Initialize the abstract superclass by defining removable and ignorable
-        tags
+        """Initialize the abstract superclass by defining removable and
+        ignorable tags.
         :param removables: tags that will be removed entirely from the final output
         :param ignorable_tags: tags whose content will be weighted as undesirable content
         """
         self.removables = removables
         self.ignorable_tags = ignorable_tags
 
-    def create_doc(self, html: str) -> Tag:
-        return BeautifulSoup(html, "html.parser").body
-
-    def extract_content(self, html: str) -> str:
-        bs = self.create_doc(html)
-        self.preprocess_dom(bs)
+    def extract_content(self, bs) -> str:
         self.count_chars(bs)
         self.count_tags(bs)
         self.count_link_chars(bs)
@@ -216,7 +218,7 @@ class AbstractExtractor(ABC):
             )
         )
 
-        return output
+        return bs, output
 
     @abstractmethod
     def count_chars(self, web_element: Tag):
@@ -267,8 +269,8 @@ class AbstractExtractor(ABC):
         web_element[KG_TAG_NUM] = tag_num
 
     def count_link_chars(self, web_element: Tag):
-        """
-        Recursively counts all link characters in the children of the tag provided
+        """Recursively counts all link characters in the children of the tag
+        provided.
         :param web_element:
         :return:
         """
@@ -276,6 +278,7 @@ class AbstractExtractor(ABC):
         for child in web_element.children:
             if isinstance(child, Tag):
                 self.count_link_chars(child)
+
         if is_ignorable(web_element, self.ignorable_tags):
             linkchar_num = web_element[KG_CHAR_NUM]
             self.update_link_chars(web_element)
@@ -310,6 +313,7 @@ class AbstractExtractor(ABC):
         for child in web_element.children:
             if isinstance(child, Tag):
                 self.count_link_tags(child)
+
         if is_ignorable(web_element, self.ignorable_tags):
             linktag_num = web_element[KG_TAG_NUM]
             self.update_link_chars(web_element)
@@ -349,8 +353,8 @@ class Extractor(AbstractExtractor):
         """
         if isinstance(web_element, Tag):
             element_str = " ".join(web_element.stripped_strings)
-            num_chars = len(element_str)
-            web_element[KG_CHAR_NUM] = num_chars
+            # num_chars = len(element_str)
+            web_element[KG_CHAR_NUM] = len(element_str)
             for child in web_element.children:
                 self.count_chars(child)
 
@@ -362,8 +366,8 @@ class Extractor(AbstractExtractor):
         anything and just sets the attribute to the same value as the character
         number. Probably why there's a variant method also.
 
-        There's also a note in the original code to ensure that this method is called
-        after update_link_chars, for obvious reasons.
+        There's also a note in the original code to ensure that this method is
+        called after update_link_chars, for obvious reasons.
 
         :param web_element: the page element provided
         :return:
@@ -374,10 +378,10 @@ class Extractor(AbstractExtractor):
                 self.update_link_chars(child)
 
     def compute_text_density(self, web_element: Tag, ratio: float):
-        """
-        Computes the text density of the element provided, and recursively computes it for
-        the element's children. This number is essentially a ratio of non-link characters
-        to link characters.
+        """Computes the text density of the element provided, and recursively
+        computes it for the element's children. This number is essentially a
+        ratio of non-link characters to link characters.
+
         :param web_element:
         :param ratio:
         :return:
@@ -418,8 +422,8 @@ class Extractor(AbstractExtractor):
                 self.compute_text_density(child, ratio)
 
     def compute_density_sum(self, web_element: Tag, ratio: float):
-        """
-        Recursively omputes the sum of text density across the node provided and all subnodes
+        """Recursively computes the sum of text density across the node provided
+        and all subnodes.
         :param web_element:
         :param ratio:
         :return:
@@ -460,89 +464,89 @@ class Extractor(AbstractExtractor):
             web_element[KG_DENSITY_SUM] = density_sum
 
 
-class VariantExtractor(AbstractExtractor):
-    """
-    A variant of the text density extractor, included in the original source
-    with methods described with a "variant" suffix
-    """
+# class VariantExtractor(AbstractExtractor):
+#     """
+#     A variant of the text density extractor, included in the original source
+#     with methods described with a "variant" suffix
+#     """
 
-    def count_chars(self, web_element: Tag):
-        """
-        Initializes the KG_CHAR_NUM attribute by actually counting
-        child characters not included in the current DOM element.
-        :param web_element:
-        :return:
-        """
-        char_num = 0
-        plain_text_length = len(" ".join(web_element.stripped_strings))
-        if not is_ignorable(web_element, self.ignorable_tags) and isinstance(
-            web_element, Tag
-        ):
-            for child in web_element.children:
-                if isinstance(child, Tag):
-                    self.count_chars(child)
-            for child in web_element.children:
-                if isinstance(child, Tag):
-                    char_num += child[KG_CHAR_NUM]
-                    child_plain_text_length = len(
-                        " ".join(child.stripped_strings)
-                    )
-                    plain_text_length -= child_plain_text_length
-            char_num = char_num + plain_text_length
-        web_element[KG_CHAR_NUM] = char_num
+#     def count_chars(self, web_element: Tag):
+#         """
+#         Initializes the KG_CHAR_NUM attribute by actually counting
+#         child characters not included in the current DOM element.
+#         :param web_element:
+#         :return:
+#         """
+#         char_num = 0
+#         plain_text_length = len(" ".join(web_element.stripped_strings))
+#         if not is_ignorable(web_element, self.ignorable_tags) and isinstance(
+#             web_element, Tag
+#         ):
+#             for child in web_element.children:
+#                 if isinstance(child, Tag):
+#                     self.count_chars(child)
+#             for child in web_element.children:
+#                 if isinstance(child, Tag):
+#                     char_num += child[KG_CHAR_NUM]
+#                     child_plain_text_length = len(
+#                         " ".join(child.stripped_strings)
+#                     )
+#                     plain_text_length -= child_plain_text_length
+#             char_num = char_num + plain_text_length
+#         web_element[KG_CHAR_NUM] = char_num
 
-    def update_link_chars(self, web_element: Tag):
-        """
-        Initializes the KG_CHAR_NUM attribute for all children of the
-        element provided to 0, not sure what the point is
-        :param web_element:
-        :return:
-        """
-        if isinstance(web_element, Tag):
-            for child in web_element.children:
-                if isinstance(child, Tag):
-                    child[KG_CHAR_NUM] = 0
-                    self.update_link_chars(child)
+#     def update_link_chars(self, web_element: Tag):
+#         """
+#         Initializes the KG_CHAR_NUM attribute for all children of the
+#         element provided to 0, not sure what the point is
+#         :param web_element:
+#         :return:
+#         """
+#         if isinstance(web_element, Tag):
+#             for child in web_element.children:
+#                 if isinstance(child, Tag):
+#                     child[KG_CHAR_NUM] = 0
+#                     self.update_link_chars(child)
 
-    def compute_text_density(self, web_element: Tag, ratio=0.0):
-        """
-        Computes text density as a simple ratio of link to non-link characters
-        :param web_element:
-        :return:
-        """
-        char_num = web_element[KG_CHAR_NUM]
-        tag_num = web_element[KG_TAG_NUM]
-        text_density = 0.0
-        if char_num != 0:
-            if tag_num == 0:
-                tag_num = 1
-            text_density = 1.0 * char_num / tag_num
-        web_element[KG_TEXT_DENSITY] = text_density
-        if isinstance(web_element, Tag):
-            for child in web_element.children:
-                if isinstance(child, Tag):
-                    self.compute_text_density(child)
+#     def compute_text_density(self, web_element: Tag, ratio=0.0):
+#         """
+#         Computes text density as a simple ratio of link to non-link characters
+#         :param web_element:
+#         :return:
+#         """
+#         char_num = web_element[KG_CHAR_NUM]
+#         tag_num = web_element[KG_TAG_NUM]
+#         text_density = 0.0
+#         if char_num != 0:
+#             if tag_num == 0:
+#                 tag_num = 1
+#             text_density = 1.0 * char_num / tag_num
+#         web_element[KG_TEXT_DENSITY] = text_density
+#         if isinstance(web_element, Tag):
+#             for child in web_element.children:
+#                 if isinstance(child, Tag):
+#                     self.compute_text_density(child)
 
-    def compute_density_sum(self, web_element: Tag, ratio=0.0):
-        """
-        A simpler way of computing the density sum that doesn't do the normalization
-        steps that the default method uses
-        :param web_element:
-        :return:
-        """
-        density_sum = 0.0
-        char_num_sum = 0.0
-        if isinstance(web_element, Tag):
-            for child in web_element.children:
-                self.compute_density_sum(child)
-            for child in web_element.children:
-                if isinstance(child, Tag):
-                    density_sum += child[KG_TEXT_DENSITY]
-                    char_num_sum += child[KG_CHAR_NUM]
-            char_num = web_element[KG_CHAR_NUM]
-            if char_num > char_num_sum:
-                char_num -= char_num_sum
-                density_sum += char_num
-            else:
-                density_sum = web_element[KG_TEXT_DENSITY]
-                web_element[KG_DENSITY_SUM] = density_sum
+#     def compute_density_sum(self, web_element: Tag, ratio=0.0):
+#         """
+#         A simpler way of computing the density sum that doesn't do the normalization
+#         steps that the default method uses
+#         :param web_element:
+#         :return:
+#         """
+#         density_sum = 0.0
+#         char_num_sum = 0.0
+#         if isinstance(web_element, Tag):
+#             for child in web_element.children:
+#                 self.compute_density_sum(child)
+#             for child in web_element.children:
+#                 if isinstance(child, Tag):
+#                     density_sum += child[KG_TEXT_DENSITY]
+#                     char_num_sum += child[KG_CHAR_NUM]
+#             char_num = web_element[KG_CHAR_NUM]
+#             if char_num > char_num_sum:
+#                 char_num -= char_num_sum
+#                 density_sum += char_num
+#             else:
+#                 density_sum = web_element[KG_TEXT_DENSITY]
+#                 web_element[KG_DENSITY_SUM] = density_sum
